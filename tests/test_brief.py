@@ -111,3 +111,21 @@ def test_a_declared_other_session_does_escalate(repo):
     assert res["verdict"] == "medium", res
     assert render_verdict(res).startswith("CAUTION")
     assert any("codex/pricing declared" in r for f in res["files"] for r in f["reasons"])
+
+
+def test_shortening_a_path_never_leaves_a_double_separator():
+    from muster.brief import _short
+    cases = [
+        "brag-2026-10-08-110237/composition/snapshots/frame-06-at-20.37s.png",
+        "a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z/thing.py",
+        "x.py",
+        "deep/" * 20 + "leaf.md",
+        "top/verylongdirectoryname/another/leaf.js",
+    ]
+    for path in cases:
+        short = _short(path)
+        assert "//" not in short, (path, short)
+        base = path.rsplit("/", 1)[-1]
+        if len(base) <= 55:
+            assert short.endswith(base), (path, short)
+        assert len(short) <= 58, (path, short, len(short))

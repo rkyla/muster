@@ -16,7 +16,7 @@ picture to exist.
 ```
 $ muster brief --repo ~/Projects/videoEditor
 muster brief  /home/rk/Projects/videoEditor
-base origin/main · you on feature/conversational-topic-editor · observed 2026-10-12T07:48:44+0000 · git 2.25.1
+base origin/main · you on feature/conversational-topic-editor · observed 2026-10-12T10:44:12+0000 · git 2.25.1
 
 YOU
   session prime-agent/6a52d4daec30
@@ -26,25 +26,25 @@ UNCOMMITTED WORK IN THIS WORKING TREE - 4 lane(s), attribution inferred
   - brag-2026-10-08-110237              90 file(s)  high     4d ago
       .brag_run_root.json(+1), brag-2026-10-08-110237/work/landing.png, brag-2026-10-08-110237/work/topics.png  +87 more
       why: everything under brag-2026-10-08-110237/ is new, so it arrived as one piece of work
-  - claim-audit                         14 file(s)  medium   27h ago
-      video_editor/.../ts/marketing/testimonials.jsx(-47), reports/claim-audit.md(+40), video_editor/...//components/marketing/faq.jsx(+55)  +11 more
+  - claim-audit                         14 file(s)  medium   30h ago
+      video_editor/.../marketing/testimonials.jsx(-47), reports/claim-audit.md(+40), video_editor/.../omponents/marketing/faq.jsx(+55)  +11 more
       why: touched together within 74m across reports, video_editor, video_editor/src/app
   - ad-simulation-data                   8 file(s)  medium   2d ago
-      reports/ad-simulation-report.md(+105), reports/ad_simulation_data/sweep_run1.jsonl(+11), reports/.../ation_data/sweep_run2_repeat.jsonl(+5)  +5 more
+      reports/ad-simulation-report.md(+105), reports/ad_simulation_data/sweep_run1.jsonl(+11), reports/.../ion_data/sweep_run2_repeat.jsonl(+5)  +5 more
       why: touched together within 1m across reports, reports/ad_simulation_data
   - demo-submit                          4 file(s)  medium   4d ago
-      video_editor/public/demo-intake.html(+49), app.py(+39), video_editor/...//app/api/demo-submit/route.js(+66)  +1 more
+      video_editor/public/demo-intake.html(+49), app.py(+39), video_editor/.../pp/api/demo-submit/route.js(+66)  +1 more
       why: touched together within 52m across ., video_editor, video_editor/public
 
 OTHER BRANCHES - 1 with work not in origin/main
-  - feature/conversational-topic-editor  25 ahead / 0 behind  [26h ago]
+  - feature/conversational-topic-editor  25 ahead / 0 behind  [29h ago]
       feat(llm): labels, fallback analyzer and frame captions use ; feat(chat): real multi-turn chat via llm_client, reasoning_d
       203 files touched: .dockerignore, .env.example, .github/workflows/tests.yml
 
 COLLISIONS - none found between your working tree and other lanes
 
 WATCH OUT
-  - 1 uncommitted file(s) over 400 added lines - commit or split them: reports/.../data/ad_comments_by_variant.md
+  - 1 uncommitted file(s) over 400 added lines - commit or split them: reports/.../ad_comments_by_variant.md
 
 NEXT
   muster settle            # split this working tree into reviewable lanes
@@ -79,7 +79,7 @@ uv tool install git+https://github.com/rkyla/muster.git
 # or: pipx install git+https://github.com/rkyla/muster.git
 ```
 
-Not on PyPI yet; the dist name `muster-cli` is reserved for when it is.
+Not published to PyPI yet. The dist name `muster-cli` is free there as of 2026-10-12; `muster` itself is taken by an unrelated package.
 
 No runtime dependencies, and no build step beyond packaging - it shells out to
 `git`, which you already have. Python >= 3.9.
@@ -114,6 +114,15 @@ Every command has `--json`. `muster touch` exits non-zero on `caution` and
 `stop`, so it works as a gate in a script or hook. It deliberately does **not**
 fail on your own unattributed work: a gate that cries wolf is a gate agents learn
 to ignore.
+
+The rest of the surface is the ledger behind those answers:
+
+| Command | What it does |
+|---|---|
+| `muster scan` | observe once, write the ledger, print nothing much (what the hook runs) |
+| `muster whoami` | the session id muster derived from this harness, and why |
+| `muster events` | the append-only log: claims, sessions, merges, settles |
+| `muster forget` | drop this repo's ledger from `~/.local/state/muster` |
 
 ## What it observes
 
@@ -251,7 +260,8 @@ not cooperate, in a tree that is already dirty.
 ```bash
 uv venv && uv pip install -e . pytest
 pytest                                  # synthetic 5-lane repo fixture
-python validation/run_validation.py     # read-only run against a real repo
+python validation/run_validation.py     # read-only checks against a real repo
+python validation/run_validation.py --writer   # + settle --apply against a copy
 ```
 
 ## License

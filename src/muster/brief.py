@@ -54,19 +54,27 @@ def _size(fc):
 
 
 def _short(path, n=58):
-    """Middle-truncate. The filename is the informative part; the prefix is not."""
+    """Middle-truncate. The filename is the informative part; the prefix is not.
+
+    The arithmetic is spelled out because the obvious version overruns `n` by a
+    couple of characters, and a truncated path that is longer than the limit is
+    worse than no truncation.
+    """
     if len(path) <= n:
         return path
-    keep = n - 1
     head = path.split("/")[0]
     tail = os.path.basename(path)
-    if len(tail) + 2 <= keep:
-        mid = path[len(head) + 1: len(path) - len(tail) - 1]
-        budget = keep - len(head) - len(tail) - 3
-        if budget < 4:
-            return head + "/.../" + tail[-(keep - len(head) - 3):]
-        return head + "/.../" + mid[-budget:] + "/" + tail
-    return path[-keep:]
+    sep = "/.../"
+    if len(head) + len(sep) + len(tail) > n:
+        # Not even the first directory, the elision and the filename fit.
+        return "..." + path[-(n - 3):]
+    spare = n - len(head) - len(sep) - len(tail)
+    mid = path[len(head) + 1: len(path) - len(tail) - 1]
+    if mid and spare >= 4:
+        keep_mid = min(len(mid), spare - 1)      # -1 for the "/" before the name
+        # The slice can start on a separator, which would render as `a/...//b`.
+        return head + sep + mid[-keep_mid:].lstrip("/") + "/" + tail
+    return head + sep + tail
 
 
 # --------------------------------------------------------------------------- #
