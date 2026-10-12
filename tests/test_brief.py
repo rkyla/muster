@@ -83,3 +83,31 @@ def test_map_of_a_quiet_repo_says_so(tmp_path, repo):
     snap, _ = build_snapshot(repo=repo, window=6 * 3600)
     if not snap.collisions:
         assert render_map(snap) == "no collisions observed"
+
+
+def test_your_own_unattributed_file_is_not_a_warning(snapshot):
+    """An inferred lane in your own tree may be your own work.
+
+    Escalating it to CAUTION makes `muster touch` exit non-zero for the common
+    case of editing a file you already edited, and agents stop trusting it.
+    """
+    wt = snapshot.head_worktree()
+    own = sorted(f.path for f in wt.dirty)[0]
+    res = verdict_for(snapshot, [own], me="tester")
+    assert res["verdict"] == "low", (own, res["files"][0]["reasons"])
+    assert render_verdict(res).startswith("FYI")
+
+
+def test_a_declared_other_session_does_escalate(repo):
+    from muster.observe import build_snapshot
+    from muster.store import Ledger
+    from muster.model import Session, Claim
+    led = Ledger(repo)
+    led.upsert_session(Session(id="codex/pricing", harness="codex",
+                               intent="pricing page", paths=["site"], source="declared"))
+    led.add_claim(Claim(session_id="codex/pricing", paths=["site"], intent="pricing page"))
+    snap, _ = build_snapshot(repo=repo, window=6 * 3600)
+    res = verdict_for(snap, ["site/hero.jsx"], me="tester")
+    assert res["verdict"] == "medium", res
+    assert render_verdict(res).startswith("CAUTION")
+    assert any("codex/pricing declared" in r for f in res["files"] for r in f["reasons"])

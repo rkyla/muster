@@ -290,15 +290,27 @@ def verdict_for(snap: Snapshot, paths, me=None):
                   and any(path_matches(d, path) for d in (s.paths or []))]
         worst = "safe"
         reasons = []
-        sev_rank = {"high": 2, "medium": 1, "low": 0}
+        sev_rank = {"safe": 0, "low": 1, "medium": 2, "high": 3}
+
+        def _raise(level):
+            nonlocal worst
+            if sev_rank.get(level, 0) > sev_rank[worst]:
+                worst = level
+
         for c in hits:
-            if sev_rank.get(c.severity, 0) > sev_rank.get(worst if worst != "safe" else "low", 0):
-                worst = c.severity
+            _raise(c.severity)
             reasons.append("%s vs %s: %s" % (c.a, c.b, c.note))
+        # A declared owner is a real conflict. An inferred lane may be the
+        # caller's own uncommitted work, so it is reported but must not escalate:
+        # a gate that cries wolf is a gate agents learn to ignore.
         for s in owners:
-            if sev_rank["medium"] > sev_rank.get(worst if worst != "safe" else "low", 0):
-                worst = "medium"
-            reasons.append("%s declared this path (%s)" % (s.id, s.intent or "no intent given"))
+            if s.source.startswith("inferred"):
+                _raise("low")
+                reasons.append("%s is an unattributed lane covering this path (%s)"
+                               % (s.id, s.intent or "no intent given"))
+            else:
+                _raise("medium")
+                reasons.append("%s declared this path (%s)" % (s.id, s.intent or "no intent given"))
         if path in dirty and worst == "safe":
             reasons.append("already modified in this working tree by you or an unattributed lane")
         verdicts.append({"path": path, "verdict": worst, "reasons": reasons,
@@ -316,10 +328,12 @@ def render_verdict(res, fmt="text"):
     if fmt == "json":
         import json
         return json.dumps(res, indent=2)
-    mark = {"safe": "SAFE", "low": "SAFE-ish", "medium": "CAUTION", "high": "STOP"}
-    lines = ["%s - %s" % (mark[res["verdict"]],
-                          "no other lane touches these paths" if res["verdict"] == "safe"
-                          else "other work overlaps these paths")]
+    mark = {"safe": "SAFE", "low": "FYI", "medium": "CAUTION", "high": "STOP"}
+    header = {"safe": "no other lane touches these paths",
+              "low": "nothing declared touches these paths; unattributed work in this tree does",
+              "medium": "a declared session overlaps these paths",
+              "high": "another lane changes the same lines"}
+    lines = ["%s - %s" % (mark[res["verdict"]], header[res["verdict"]])]
     for v in res["files"]:
         lines.append("  %-8s %s" % (v["verdict"].upper(), v["path"]))
         for r in v["reasons"]:

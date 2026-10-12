@@ -75,12 +75,14 @@ branch 25 commits from `main`. See [validation](docs/VALIDATION.md).
 ## Install
 
 ```bash
-uv tool install muster-cli        # or: pipx install muster-cli
-# or from source
 uv tool install git+https://github.com/rkyla/muster.git
+# or: pipx install git+https://github.com/rkyla/muster.git
 ```
 
-No runtime dependencies. It shells out to `git`, which you already have.
+Not on PyPI yet; the dist name `muster-cli` is reserved for when it is.
+
+No runtime dependencies, and no build step beyond packaging - it shells out to
+`git`, which you already have. Python >= 3.9.
 
 Then, in the repo the agents share:
 
@@ -99,7 +101,7 @@ Most coding agents read `AGENTS.md`, so the instructions arrive without any hook
 |---|---|---|
 | `muster brief` | session start | What is everyone else building, and what collides with me? |
 | `muster claim --intent "..." --paths src/api,tests` | before editing | I am here, this is my scope |
-| `muster touch src/api/users.py` | before each file | safe / caution / stop |
+| `muster touch src/api/users.py` | before each file | safe / FYI / caution / stop |
 | `muster done --summary "added /demo-leads"` | session end | I am finished, this is what landed |
 | `muster map` | debugging | the full collision matrix |
 | `muster features` | reviewing | what functionality each branch actually carries |
@@ -108,8 +110,10 @@ Most coding agents read `AGENTS.md`, so the instructions arrive without any hook
 | `muster settle --apply` | cleanup | split a mixed working tree into reviewable lanes |
 | `muster watch` | orchestrator | tell me when another lane moves |
 
-Every command has `--json`. `muster touch` exits non-zero on `caution`/`stop`, so
-it works as a gate in a script or hook.
+Every command has `--json`. `muster touch` exits non-zero on `caution` and
+`stop`, so it works as a gate in a script or hook. It deliberately does **not**
+fail on your own unattributed work: a gate that cries wolf is a gate agents learn
+to ignore.
 
 ## What it observes
 
