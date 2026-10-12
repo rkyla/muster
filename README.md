@@ -178,7 +178,9 @@ events, optionally calling a `notify` command.
 `muster sync push` publishes the ledger to `refs/muster/ledger` - one JSON blob on
 a git ref, invisible in working trees and pull requests. `muster sync pull` merges
 it in, newest write per session wins, and refuses a ledger whose `repo_id` does
-not match. Git already replicates refs, so there is no server to run.
+not match. `repo_id` is the repository's root commit, so clones of one project
+agree while two unrelated repositories that happen to share a remote stay apart.
+Git already replicates refs, so there is no server to run.
 
 Only declared state is published: session ids, intents, path scopes, events. No
 file contents and no commit bodies leave the machine.

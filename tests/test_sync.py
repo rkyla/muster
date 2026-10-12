@@ -83,19 +83,21 @@ def test_a_foreign_project_is_not_merged_into_your_ledger(two_clones, tmp_path):
     """repo_id is the only thing stopping another project's sessions appearing."""
     import os
     import subprocess
-    a, _b, _remote = two_clones
+    a, _b, remote = two_clones
     stranger = str(tmp_path / "stranger")
     subprocess.run(["git", "init", "-q", stranger], check=True)
     with open(os.path.join(stranger, "f.txt"), "w") as fh:
         fh.write("x\n")
-    subprocess.run(["git", "-C", stranger, "add", "-A"], check=True)
-    subprocess.run(["git", "-C", stranger, "-c", "user.email=a@b", "-c", "user.name=a",
-                    "commit", "-q", "-m", "s"], check=True)
-    subprocess.run(["git", "-C", stranger, "remote", "add", "origin", Git(a).toplevel()],
-                   check=True)
+    for extra in (["add", "-A"],
+                  ["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "s"]):
+        subprocess.run(["git", "-C", stranger] + extra, check=True)
+    # The stranger publishes to the same shared bare remote. Pushing into a
+    # non-bare working copy is refused outright by newer git, which would test
+    # git's policy here instead of ours.
+    subprocess.run(["git", "-C", stranger, "remote", "add", "origin", remote], check=True)
     Ledger(stranger).upsert_session(Session(id="other-project/session"))
-    # the stranger publishes under its own id; pulling it into a must be refused
-    assert push(Git(stranger), Ledger(stranger))["ok"] is True
+    pushed = push(Git(stranger), Ledger(stranger))
+    assert pushed["ok"] is True, pushed
     out = pull(Git(a), Ledger(a))
     assert out["ok"] is False
     assert "different repository" in out["error"]
@@ -122,3 +124,32 @@ def test_sync_cli_push_and_pull(two_clones, capsys):
     assert "ok" in capsys.readouterr().out.lower()
     assert cli.main(["sync", "pull", "--repo", b]) == 0
     assert "cli/one" in {s.id for s in Ledger(b).sessions()}
+
+
+def test_two_projects_sharing_a_remote_are_not_one_project(two_clones, tmp_path):
+    """A shared remote is not a shared identity.
+
+    This is why repo_id is the root commit and not the remote URL: two unrelated
+    repositories pointed at the same bare remote must stay two projects.
+    """
+    import os
+    import subprocess
+    a, _b, remote = two_clones
+    other = str(tmp_path / "other")
+    subprocess.run(["git", "init", "-q", other], check=True)
+    with open(os.path.join(other, "g.txt"), "w") as fh:
+        fh.write("y\n")
+    for extra in (["add", "-A"],
+                  ["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "t"]):
+        subprocess.run(["git", "-C", other] + extra, check=True)
+    subprocess.run(["git", "-C", other, "remote", "add", "origin", remote], check=True)
+    assert repo_id(Git(a)) != repo_id(Git(other))
+
+
+def test_an_empty_repo_still_gets_an_id(tmp_path):
+    import os
+    import subprocess
+    empty = str(tmp_path / "empty")
+    os.makedirs(empty)
+    subprocess.run(["git", "init", "-q", empty], check=True)
+    assert repo_id(Git(empty)) == repo_id(Git(empty))

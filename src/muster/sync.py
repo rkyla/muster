@@ -26,15 +26,32 @@ BLOB = "ledger.json"
 
 
 def repo_id(git: Git) -> str:
-    """Stable identity so a pull never merges another project's sessions."""
+    """Stable identity, so a pull never merges another project's sessions.
+
+    The root commit is the identity: every clone of a project shares it, and no
+    two unrelated projects have it. A remote URL is only a fallback, because a
+    URL is shared by every clone *and* by any other repository pointed at the
+    same remote - which is exactly the case that must be refused, not merged.
+    """
+    # Branches and tags only. `--all` would include refs/muster/ledger, whose
+    # commit is parentless by construction, so a repo's identity would change the
+    # first time it synced. Remote-tracking refs count too: a clone made from a
+    # bare repo whose HEAD points nowhere has no local branch at all, and using
+    # the URL for it while the origin uses the root commit splits one project in
+    # two.
+    refs = [r for r in git.run("for-each-ref", "--format=%(refname)",
+                               "refs/heads", "refs/tags", "refs/remotes",
+                               check=False).split()
+            if not r.startswith("refs/muster")]
+    roots = git.run("rev-list", "--max-parents=0", *refs, check=False).split() if refs else []
+    if roots:
+        # Deterministic across clones even when a repo holds unrelated histories.
+        return hashlib.sha256(sorted(set(roots))[0].encode()).hexdigest()[:16]
     remotes = git.run("remote", check=False).split()
     url = ""
     if remotes:
         url = git.run("remote", "get-url", remotes[0], check=False).strip()
-    if url:
-        return hashlib.sha256(url.encode()).hexdigest()[:16]
-    first = git.run("rev-list", "--max-parents=0", "HEAD", check=False).split()
-    return hashlib.sha256((first[0] if first else git.toplevel()).encode()).hexdigest()[:16]
+    return hashlib.sha256((url or git.toplevel()).encode()).hexdigest()[:16]
 
 
 def _mktree(git: Git, blob_sha, name=BLOB):
