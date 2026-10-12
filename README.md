@@ -167,6 +167,10 @@ conservative by design:
   branch instead of moving a branch out from under a running session.
 - **`settle` never deletes anything.** It copies each cluster of dirty files onto
   its own branch from the base branch. Your working tree is exactly as it was.
+- **Muster signs its own commits** as `muster <muster@localhost>`, so a merge or
+  a settle still works on a fresh container with no git identity configured.
+  Override with `MUSTER_COMMITTER_NAME` / `MUSTER_COMMITTER_EMAIL`. Your own
+  commits are never touched.
 
 `muster watch` is the long-lived observer: it re-scans on an interval and emits
 `ref-new`, `ref-moved`, `file-dirtied`, `file-cleaned`, and `collision-new`

@@ -18,7 +18,7 @@ import json
 import os
 import time
 
-from .gitio import Git, GitError
+from .gitio import Git, GitError, identity
 from .model import Claim, Session, now_iso
 
 REF = "refs/muster/ledger"
@@ -91,13 +91,16 @@ def push(git: Git, ledger, remote="origin", dry_run=False):
         blob = git.run("hash-object", "-w", "--stdin", stdin=payload).strip()
         tree = _mktree(git, blob)
         parent = git.run("rev-parse", "-q", "--verify", REF, check=False).strip()
-        args = ["commit-tree", tree, "-m", "muster ledger %s" % now_iso()]
+        args = list(identity()) + ["commit-tree", tree,
+                "-m", "muster ledger %s" % now_iso()]
         if parent:
             args += ["-p", parent]
         commit = git.run(*args).strip()
         git.run("update-ref", REF, commit)
-        out = git.run("push", remote, "%s:%s" % (REF, REF), check=False)
-        forced = git.run("push", "--force", remote, "%s:%s" % (REF, REF), check=False) \
+        # `git push` writes its verdict, including rejections, to stderr.
+        out = git.run("push", remote, "%s:%s" % (REF, REF), check=False, combine=True)
+        forced = git.run("push", "--force", remote, "%s:%s" % (REF, REF), check=False,
+                         combine=True) \
             if "rejected" in out.lower() or "non-fast-forward" in out.lower() else ""
         ledger.record("sync-push", branch=REF, sessions=len(doc["sessions"]))
         return {"ok": True, "ref": REF, "commit": commit[:9], "remote": remote,

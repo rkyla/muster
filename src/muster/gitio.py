@@ -41,6 +41,20 @@ def _parse_hunks(diff_text):
     return ranges
 
 
+def identity():
+    """`git -c` flags giving muster's own commits an author.
+
+    A machine with no `user.name` configured must still be able to merge, settle
+    and sync. These commits are bookkeeping muster performs on the user's behalf;
+    git refusing to guess an email is not a reason to lose the work, and blaming
+    the user's identity for it would be wrong too. Override with
+    MUSTER_COMMITTER_NAME / MUSTER_COMMITTER_EMAIL.
+    """
+    name = os.environ.get("MUSTER_COMMITTER_NAME") or "muster"
+    mail = os.environ.get("MUSTER_COMMITTER_EMAIL") or "muster@localhost"
+    return ("-c", "user.name=" + name, "-c", "user.email=" + mail)
+
+
 @dataclass
 class Git:
     repo: str
@@ -60,14 +74,22 @@ class Git:
             e.update(self.env)
         return e
 
-    def run(self, *args, stdin=None, check=True, cwd=None):
+    def run(self, *args, stdin=None, check=True, cwd=None, combine=False):
+        """Run git and return stdout.
+
+        `combine=True` folds stderr into stdout. Git writes the interesting part
+        of every write operation - merge results, push rejections, most errors -
+        to stderr, so a write path that reads only stdout can watch a failed
+        merge and report that nothing happened.
+        """
         cmd = ["git", "-c", "core.quotepath=false", *args]
         proc = subprocess.run(
             cmd, cwd=cwd or self.repo, input=stdin, env=self._env(),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if combine else subprocess.PIPE,
         )
         out = proc.stdout.decode("utf-8", "replace")
-        err = proc.stderr.decode("utf-8", "replace")
+        err = proc.stderr.decode("utf-8", "replace") if proc.stderr else out
         if check and proc.returncode != 0:
             raise GitError(args, proc.returncode, err)
         return out

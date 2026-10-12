@@ -243,3 +243,46 @@ def test_diff_of_identical_snapshots_is_empty(repo):
     a, _ = build_snapshot(repo=repo, window=6 * 3600)
     b, _ = build_snapshot(repo=repo, window=6 * 3600)
     assert diff_snapshots(a, b) == []
+
+
+def test_a_fast_forwardable_merge_still_runs_verify(repo):
+    """A merge git could fast-forward must not skip the verify step.
+
+    With `--no-commit` git leaves the result staged instead of moving the ref, so
+    verify sees the merged tree and a failure still rolls everything back.
+    """
+    git = Git(repo)
+    seed = git.run("rev-list", "--max-parents=0", "HEAD").strip()
+    git.run("branch", "ff-target", seed)
+    before = git.run("rev-parse", "ff-target").strip()
+    res = merge(git, "feature/upload-api", "ff-target", apply=True, verify="exit 1")
+    assert res["applied"] is False, res["log"]
+    assert git.run("rev-parse", "ff-target").strip() == before, \
+        "a fast-forward must not move the branch past a failing verify"
+    assert any("verify failed" in line for line in res["log"])
+
+
+def test_a_fast_forwardable_merge_applies_when_verify_passes(repo):
+    git = Git(repo)
+    seed = git.run("rev-list", "--max-parents=0", "HEAD").strip()
+    git.run("branch", "ff-target", seed)
+    res = merge(git, "feature/upload-api", "ff-target", apply=True,
+                verify="test -f docs/upload.md")
+    assert res["applied"] is True, res["log"]
+    assert git.run("merge-base", "--is-ancestor", "feature/upload-api", "ff-target",
+                   check=False) == ""
+
+
+def test_a_merge_that_fails_is_reported_and_not_applied(repo):
+    """Unrelated histories: git refuses, and muster must not call that a merge."""
+    git = Git(repo)
+    # Built with plumbing so the user's dirty working tree is not disturbed.
+    blob = git.run("hash-object", "-w", "--stdin", stdin=b"nothing in common\n").strip()
+    tree = git.run("mktree", stdin=("100644 blob %s\telsewhere.txt\n" % blob).encode()).strip()
+    from muster.gitio import identity
+    orphan = git.run(*identity(), "commit-tree", tree, "-m", "orphan start").strip()
+    git.run("branch", "unrelated", orphan)
+    res = merge(git, "unrelated", "main", apply=True)
+    assert res["applied"] is False, res["log"]
+    joined = "\n".join(res["log"]).lower()
+    assert "unrelated histories" in joined or "refusing" in joined, res["log"]

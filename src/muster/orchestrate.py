@@ -24,7 +24,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 
-from .gitio import Git, GitError
+from .gitio import Git, GitError, identity
 from .model import now_iso
 from .observe import cluster_changes, is_noise
 
@@ -156,7 +156,8 @@ def _probe_scratch(git: Git, into_sha, ref_sha):
     try:
         path = _scratch(git, into_sha)
         sub = Git(path)
-        out = sub.run("merge", "--no-commit", "--no-ff", "--no-edit", ref_sha, check=False)
+        out = sub.run("merge", "--no-commit", "--no-ff", "--no-edit", ref_sha,
+                      check=False, combine=True)
         conflicts = [l for l in sub.run("diff", "--name-only", "--diff-filter=U",
                                         check=False).splitlines() if l.strip()]
         sub.run("merge", "--abort", check=False)
@@ -213,8 +214,13 @@ def merge(git: Git, ref: str, into: str, apply=False, verify="", force=False,
         # --no-commit, so verify runs against the merged tree while the merge is
         # still reversible. Committing first and rolling back later is not
         # rollback: a completed merge commit is history.
-        out = sub.run("merge", "--no-commit", "--no-ff", "--no-edit", ref, check=False)
-        result["log"].append(out.strip()[:1200])
+        # identity(): `git merge` resolves the committer up front, so a machine
+        # with no git identity fails here, not at the commit.
+        # combine=True: git reports the merge and its failures on stderr, and a
+        # discarded stderr turns a failed merge into a silent no-op.
+        out = sub.run(*identity(), "merge", "--no-commit", "--no-ff", "--no-edit", ref,
+                      check=False, combine=True)
+        result["log"].append(out.strip()[:1200] or "(git merge said nothing)")
         unresolved = [l for l in sub.run("diff", "--name-only", "--diff-filter=U",
                                          check=False).splitlines() if l.strip()]
         if unresolved:
@@ -235,7 +241,7 @@ def merge(git: Git, ref: str, into: str, apply=False, verify="", force=False,
                 return result
             result["log"].append("verify passed: %s" % verify)
 
-        done = sub.run("commit", "--no-edit", check=False)
+        done = sub.run(*identity(), "commit", "--no-edit", check=False, combine=True)
         if sub.run("rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).strip():
             result["log"].append("commit after verify failed: %s" % done.strip()[:300])
             sub.run("merge", "--abort", check=False)
@@ -369,7 +375,8 @@ def settle_apply(git: Git, sp: SettlePlan, apply=False, ledger=None, session=Non
             if staged == 0:
                 result["failed"].append("%s: no file could be staged" % entry["branch"])
                 continue
-            sub.run("commit", "-m", entry["message"], "--no-verify", check=False)
+            sub.run(*identity(), "commit", "-m", entry["message"],
+                        "--no-verify", check=False)
             sha = sub.run("rev-parse", "HEAD", check=False).strip()
             moved = git.run("rev-parse", "-q", "--verify",
                             "refs/heads/" + entry["branch"], check=False).strip()
