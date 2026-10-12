@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "muster-cli"
+version = "0.1.0"
+description = "Cross-session awareness for AI coding agents working on the same repository."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Rohith Kyla" }]
+keywords = ["git", "ai-agents", "multi-agent", "worktree", "merge", "coding-agent"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Version Control :: Git",
+]
+# Deliberately empty: an agent tool that cannot be installed offline is not useful.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/rkyla/muster"
+Repository = "https://github.com/rkyla/muster"
+
+[project.scripts]
+muster = "muster.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/muster"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
