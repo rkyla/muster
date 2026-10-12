@@ -48,7 +48,88 @@ class Report:
         return [r for r in self.rows if not r["ok"]]
 
 
+def _fingerprint(repo):
+    """Everything a writer could damage, reduced to something comparable."""
+    git = Git(repo)
+    return {
+        "status": git.run("status", "--porcelain=v1", check=False),
+        "head": git.run("rev-parse", "HEAD", check=False).strip(),
+        "refs": git.run("for-each-ref", check=False),
+        "worktrees": git.run("worktree", "list", check=False),
+        "stashes": git.run("stash", "list", check=False),
+    }
+
+
+def writer_check(repo, rep):
+    """Run the one command that writes, against a hardlink copy of a real repo.
+
+    A hardlink copy costs no disk and no time on a large repository, and git
+    writes new files rather than editing objects in place, so the original keeps
+    its own bytes. The copy is deleted afterwards; deleting a hardlink never
+    touches the file it pointed at.
+    """
+    import shutil
+    import tempfile
+    from muster.orchestrate import settle_apply
+
+    print("\nthe writer, against a copy of the real repository")
+    before = _fingerprint(repo)
+    parent = os.path.dirname(os.path.abspath(repo).rstrip("/")) or "/"
+    dest = os.path.join(parent, ".muster-writer-check-%d" % os.getpid())
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    made = subprocess.run(["cp", "-al", os.path.abspath(repo), dest],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if made.returncode != 0:
+        made = subprocess.run(["cp", "-a", os.path.abspath(repo), dest],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if made.returncode != 0:
+        rep.check("a copy of the repository could be made", False,
+                  made.stderr.decode()[:120])
+        return
+    try:
+        state = os.path.join(tempfile.gettempdir(), "muster-writer-state-%d" % os.getpid())
+        os.environ["MUSTER_STATE_DIR"] = state
+        cgit = Git(dest)
+        snap, _ledger = build_snapshot(repo=dest)
+        sp = settle_plan(cgit, snap)
+        head_wt = snap.head_worktree()
+        deleted = [f.path for f in (head_wt.dirty if head_wt else []) if f.status == "D"]
+        res = settle_apply(cgit, sp, apply=True)
+        rep.check("settle created a branch per lane", len(res["created"]) >= 1,
+                  "%d branch(es), %d failed" % (len(res["created"]), len(res["failed"])))
+        after = _fingerprint(dest)
+        rep.check("settle left the working tree exactly as it was",
+                  after["status"] == before["status"] and after["head"] == before["head"],
+                  "%d dirty paths still uncommitted" % len(after["status"].splitlines()))
+        for made_branch in res["created"]:
+            lane = [b for b in sp.branches if b["branch"] == made_branch["branch"]][0]
+            on_branch = set(cgit.run("diff", "--name-only", "%s~1" % made_branch["branch"],
+                                     made_branch["branch"], check=False).splitlines())
+            missing = [p for p in lane["paths"] if p not in on_branch]
+            rep.check("every path in the lane reached its branch", not missing,
+                      "%s: %d/%d carried%s" % (made_branch["cluster"], len(lane["paths"]) - len(missing),
+                                               len(lane["paths"]),
+                                               "" if not missing else " - missing " + str(missing[:2])))
+        if deleted:
+            statuses = "\n".join(
+                cgit.run("diff", "--name-status", "%s~1" % m["branch"], m["branch"], check=False)
+                for m in res["created"])
+            carried = [p for p in deleted if any(l.startswith("D") and l.endswith(p)
+                                                 for l in statuses.splitlines())]
+            rep.check("a deleted file is carried as a deletion", len(carried) == len(deleted),
+                      "%d/%d deletion(s) on a branch: %s" % (len(carried), len(deleted),
+                                                             ", ".join(deleted)[:60]))
+        now = _fingerprint(repo)
+        rep.check("the original repository is untouched", now == before,
+                  "status, HEAD, refs, worktrees and stashes all identical")
+    finally:
+        shutil.rmtree(dest, ignore_errors=True)
+        os.environ.pop("MUSTER_STATE_DIR", None)
+
+
 def main(argv):
+    flags = [a for a in argv if a.startswith("-")]
     repo = argv[0] if argv and not argv[0].startswith("-") else DEFAULT_REPO
     repo = os.path.abspath(os.path.expanduser(repo))
     rep = Report()
@@ -170,6 +251,9 @@ def main(argv):
     rep.check("observation left no untracked files",
               sorted(git.status()) == status_before)
 
+    if "--writer" in flags:
+        writer_check(repo, rep)
+
     failed = rep.failed
     print("\n%d checks, %d failed" % (len(rep.rows), len(failed)))
     if "--json" in argv:
@@ -264,8 +348,21 @@ def write_doc(repo, snap, rep, git):
                      "which is the correct answer for this repository and not a "
                      "failure of the detector - the detector is exercised against "
                      "constructed overlaps in `tests/test_collisions.py`.")
+    writer_rows = [r for r in rep.rows if "settle" in r["name"]
+                   or "original repository" in r["name"]]
+    if writer_rows:
+        lines += [
+            "## The writer, against a copy",
+            "",
+            "Read-only checks prove very little, so `--writer` runs `settle --apply` "
+            "too. It runs against a hardlink copy of the repository (`cp -al`, so no "
+            "disk and no wait on a 7 GB tree), and it checks the copy's working tree "
+            "hash before and after, that every path in every lane reached its branch "
+            "including deletions, and that the original repository's status, HEAD, "
+            "refs, worktrees and stashes are byte-identical to before.",
+            "",
+        ]
     lines += [
-        "",
         "## Checks",
         "",
         "```",

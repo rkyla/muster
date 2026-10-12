@@ -286,7 +286,12 @@ class SettlePlan:
 
 def settle_plan(git: Git, snap, base=None, only=None, max_clusters=12):
     wt = snap.head_worktree()
-    sp = SettlePlan(base=base or snap.base)
+    # The base is where the working tree actually sits, not the oldest branch in
+    # the repository. Uncommitted work is expressed relative to the checked-out
+    # commit: branch from anything else and a deleted file has no deletion to
+    # carry, because the file never existed on that base.
+    default_base = (wt.branch or wt.head) if wt else None
+    sp = SettlePlan(base=base or default_base or snap.base)
     if not wt or not wt.dirty:
         sp.notes.append("working tree is clean; nothing to settle")
         return sp
@@ -369,7 +374,17 @@ def settle_apply(git: Git, sp: SettlePlan, apply=False, ledger=None, session=Non
                     sub.run("add", "--", rel, check=False)
                     staged += 1
                 else:
-                    # present in the base, deleted in the working tree
+                    # Deleted in the user's tree. The scratch worktree still has
+                    # the file from the base, so it has to be removed there too -
+                    # staging alone would leave the deletion out of the branch and
+                    # the lane would come back with a file its author deleted.
+                    if os.path.exists(dst):
+                        try:
+                            os.remove(dst)
+                        except OSError as exc:
+                            result["failed"].append("%s: could not remove %s (%s)"
+                                                    % (entry["branch"], rel, exc))
+                            continue
                     sub.run("add", "-A", "--", rel, check=False)
                     staged += 1
             if staged == 0:

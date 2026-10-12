@@ -85,6 +85,13 @@ def state_dir_for(repo_root):
     return os.path.join(base, key)
 
 
+def _quiet_unlink(path):
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 class Ledger:
     def __init__(self, repo_root, state_dir=None):
         self.root = repo_root
@@ -275,15 +282,48 @@ class Ledger:
     # ---- snapshots -------------------------------------------------------
 
     def save_snapshot(self, snap):
-        # Two observations can land in the same second; a second-granular name
-        # would silently overwrite the earlier audit record.
-        stamp = "%s-%03d-%d" % (time.strftime("%Y%m%dT%H%M%S"),
-                                int(time.time() * 1000) % 1000, os.getpid())
-        path = os.path.join(self.snap_dir, "%s.json" % stamp)
-        tmp = path + ".tmp"
-        with open(tmp, "w") as fh:
-            fh.write(snap.to_json())
-        os.replace(tmp, path)
+        """Write an audit record under a name nothing else is holding.
+
+        Observations can land in the same second, the same millisecond and, on a
+        fast machine, the same microsecond - so the timestamp is a starting point,
+        not a claim. The name is taken with `link`, which fails when it is already
+        used, and retried with a counter. An earlier record is never overwritten:
+        an audit trail that loses rows is not an audit trail.
+        """
+        body = snap.to_json()
+        stamp = "%s-%06d-%d" % (time.strftime("%Y%m%dT%H%M%S"),
+                                int(time.time() * 1e6) % 1000000, os.getpid())
+        path = None
+        for attempt in range(1000):
+            name = stamp if attempt == 0 else "%s-%d" % (stamp, attempt)
+            candidate = os.path.join(self.snap_dir, name + ".json")
+            tmp = "%s.%d.tmp" % (candidate, os.getpid())
+            try:
+                with open(tmp, "w") as fh:
+                    fh.write(body)
+                os.link(tmp, candidate)      # atomic: raises if the name is taken
+                _quiet_unlink(tmp)
+                path = candidate
+                break
+            except FileExistsError:
+                _quiet_unlink(tmp)
+                continue
+            except OSError:
+                # Filesystems without hardlinks (some network mounts, Windows
+                # without privileges): the exclusive create still cannot clobber.
+                _quiet_unlink(tmp)
+                try:
+                    fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+                    with os.fdopen(fd, "w") as fh:
+                        fh.write(body)
+                    path = candidate
+                    break
+                except FileExistsError:
+                    continue
+                except OSError:
+                    continue
+        if path is None:
+            return ""
         with open(os.path.join(self.dir, "latest.json"), "w") as fh:
             fh.write(path)
         self._prune_snapshots(keep=50)

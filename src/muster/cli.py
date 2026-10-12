@@ -304,7 +304,9 @@ def cmd_settle(args):
     cfg, _problems = load_config(_repo(args) or os.getcwd())
     git = Git.detect(_repo(args))
     snap, ledger = _snapshot(args, cfg, with_collisions=False)
-    sp = settle_plan(git, snap, base=args.base or cfg.get("base") or snap.base,
+    # No `or snap.base` here: settle_plan defaults to the commit the working tree
+    # sits on, which is what uncommitted work is relative to.
+    sp = settle_plan(git, snap, base=args.base or cfg.get("base"),
                      max_clusters=args.max)
     res = settle_apply(git, sp, apply=args.apply, ledger=ledger,
                        session=_session(args, git)[0])

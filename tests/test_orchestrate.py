@@ -286,3 +286,20 @@ def test_a_merge_that_fails_is_reported_and_not_applied(repo):
     assert res["applied"] is False, res["log"]
     joined = "\n".join(res["log"]).lower()
     assert "unrelated histories" in joined or "refusing" in joined, res["log"]
+
+
+def test_settle_carries_a_deletion_into_its_lane(repo):
+    """A deleted file is part of the lane's work, not something to leave behind."""
+    git = Git(repo)
+    snap, _ = build_snapshot(repo=repo, window=6 * 3600)
+    # site/footer.jsx exists on the checked-out lane, not on main, so the base has
+    # to be the branch the deletion was made against.
+    sp = settle_plan(git, snap, base="feature/upload-api")
+    site = [b for b in sp.branches if "site" in b["cluster"] or "hero" in b["cluster"]]
+    assert site, [b["cluster"] for b in sp.branches]
+    assert "site/footer.jsx" in site[0]["paths"], site[0]["paths"]
+    res = settle_apply(git, sp, apply=True)
+    made = [m for m in res["created"] if m["cluster"] == site[0]["cluster"]][0]
+    status = git.run("diff", "--name-status", "feature/upload-api",
+                     made["branch"]).splitlines()
+    assert any(l.startswith("D") and l.endswith("site/footer.jsx") for l in status), status

@@ -179,3 +179,28 @@ def test_status_counts_what_is_stored(repo):
     st = led.status()
     assert st["sessions"] >= 1
     assert st["events"] >= 1
+
+
+def test_a_fast_burst_of_observations_keeps_every_record(repo):
+    """The clock is not a lock: a tight loop must not lose audit rows."""
+    from muster.observe import build_snapshot
+    led = Ledger(repo)
+    snap, _ = build_snapshot(repo=repo, window=6 * 3600)
+    paths = [led.save_snapshot(snap) for _ in range(50)]
+    assert all(paths), "a save returned no path"
+    assert len(set(paths)) == 50, "%d distinct names for 50 saves" % len(set(paths))
+    on_disk = [x for x in paths if os.path.exists(x)]
+    assert len(on_disk) == 50, "records written but not present"
+    for x in paths:
+        with open(x) as fh:
+            json.load(fh)
+
+
+def test_no_temporary_files_are_left_behind(repo):
+    from muster.observe import build_snapshot
+    led = Ledger(repo)
+    snap, _ = build_snapshot(repo=repo, window=6 * 3600)
+    for _ in range(5):
+        led.save_snapshot(snap)
+    leftovers = [n for n in os.listdir(led.snap_dir) if n.endswith(".tmp")]
+    assert not leftovers, leftovers
